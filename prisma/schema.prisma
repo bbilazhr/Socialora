@@ -1,0 +1,146 @@
+// Socialora — Prisma schema
+// SQLite by default so the project runs locally with zero external services.
+// Swap the datasource to postgresql + a real DATABASE_URL for production —
+// the models are already written to be tenant-safe via explicit
+// workspaceId / brandId scoping in every query in src/lib/data.
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+
+model User {
+  id           String       @id @default(cuid())
+  name         String
+  email        String       @unique
+  passwordHash String
+  createdAt    DateTime     @default(now())
+  memberships  Membership[]
+}
+
+model Workspace {
+  id          String       @id @default(cuid())
+  name        String
+  createdAt   DateTime     @default(now())
+  memberships Membership[]
+  brands      Brand[]
+  invites     Invite[]
+}
+
+// Join table: which users belong to which workspace, and with what role.
+// This is what makes the app multi-user (a team) AND multi-brand
+// (a workspace owns many brands) at the same time.
+model Membership {
+  id          String    @id @default(cuid())
+  userId      String
+  workspaceId String
+  role        String    @default("SPECIALIST")
+  createdAt   DateTime  @default(now())
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, workspaceId])
+}
+
+// Pending invitations for teammates who don't have an account yet.
+model Invite {
+  id          String    @id @default(cuid())
+  workspaceId String
+  email       String
+  role        String    @default("SPECIALIST")
+  createdAt   DateTime  @default(now())
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+model Brand {
+  id            String           @id @default(cuid())
+  workspaceId   String
+  name          String
+  logoUrl       String?
+  primaryColor  String           @default("#2563eb")
+  accentColor   String           @default("#f59e0b")
+  createdAt     DateTime         @default(now())
+  workspace     Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  contents      Content[]
+  goals         Goal[]
+  conversations AIConversation[]
+}
+
+model Content {
+  id          String         @id @default(cuid())
+  brandId     String
+  title       String
+  platform    String // instagram | tiktok | youtube | facebook | x | threads
+  format      String // Video | Carousel | Image
+  pillar      String?
+  funnel      String         @default("TOFU")
+  status      String         @default("IDEATION")
+  approval    String         @default("PENDING")
+  postUrl     String?
+  scriptText  String?
+  scheduledAt DateTime?
+  publishedAt DateTime?
+
+  views       Int   @default(0)
+  likes       Int   @default(0)
+  comments    Int   @default(0)
+  shares      Int   @default(0)
+  saves       Int   @default(0)
+  clicks      Int   @default(0)
+  conversions Int   @default(0)
+  gmv         Float @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  brand     Brand            @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  snapshots MetricSnapshot[]
+}
+
+// Historical time-series points captured whenever a link is "refreshed"
+// (manually, or by the scheduled tracker). Powers trend charts.
+model MetricSnapshot {
+  id         String   @id @default(cuid())
+  contentId  String
+  views      Int      @default(0)
+  likes      Int      @default(0)
+  comments   Int      @default(0)
+  shares     Int      @default(0)
+  capturedAt DateTime @default(now())
+  content    Content  @relation(fields: [contentId], references: [id], onDelete: Cascade)
+}
+
+model Goal {
+  id           String   @id @default(cuid())
+  brandId      String
+  platform     String
+  metric       String // VIEWS | FOLLOWERS | GMV | ENGAGEMENT
+  targetValue  Float
+  currentValue Float    @default(0)
+  startDate    DateTime @default(now())
+  deadline     DateTime
+  brand        Brand    @relation(fields: [brandId], references: [id], onDelete: Cascade)
+}
+
+model AIConversation {
+  id        String      @id @default(cuid())
+  brandId   String
+  title     String      @default("Chat Baru")
+  createdAt DateTime    @default(now())
+  brand     Brand       @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  messages  AIMessage[]
+}
+
+model AIMessage {
+  id             String         @id @default(cuid())
+  conversationId String
+  role           String // "user" | "assistant"
+  content        String
+  createdAt      DateTime       @default(now())
+  conversation   AIConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+}
